@@ -38,6 +38,9 @@ public class Main {
 | `\t`     | 制表符             |
 | `\b`     | 退格               |
 | `\f`     | 换页               |
+| `\0`     | 空字符（null字符） |
+| `\a`     | 响铃（警告）       |
+| `\v`     | 垂直制表符         |
 ## 布尔类型
 
 布尔类型只有两个值 true 和 false，不能用 0 和 1 来表示
@@ -129,6 +132,14 @@ array[1] = 20; // 给数组的第二个元素赋值
 System.out.println("数组第一个元素: " + array[0]);
 System.out.println("数组第二个元素: " + array[1]);
 ```
+#### for-each循环
+```java
+int[] numbers = {1, 2, 3, 4, 5};
+for (int num : numbers) {
+    System.out.println(num);
+}
+```
+
 
 
 ### 类class
@@ -729,3 +740,149 @@ for (int i = 0; i < 5; i++) {
     }
 }
 ```
+
+## Java 装箱与拆箱总结
+
+### 1. 什么是装箱（Boxing）？
+装箱是将**基本数据类型**（如 int、double 等）转换为**对应的包装类对象**（如 Integer、Double 等）的过程。
+
+**举例：**
+```java
+int num = 10;
+Integer boxedNum = Integer.valueOf(num); // 显式装箱
+Integer autoBoxedNum = num; // 自动装箱（Java 5及以后）
+```
+
+### 2. 什么是拆箱（Unboxing）？
+拆箱是将**包装类对象**转换为**对应的基本数据类型**的过程。
+
+**举例：**
+```java
+Integer obj = 20;
+int unboxedNum = obj.intValue(); // 显式拆箱
+int autoUnboxedNum = obj; // 自动拆箱（Java 5及以后）
+```
+
+### 3. 为什么需要装箱与拆箱？
+
+- **集合只能存对象，不能存基本类型。**
+  例如 `ArrayList<Integer>` 只能存 `Integer` 类型，不能直接存 int。
+- **包装类有更多操作方法。**
+  如 `Integer` 可以调用 `.compareTo()`、`.toString()` 等方法。
+- **包装类可以表示 null，基本类型不行。**
+  例如 `Integer i = null;` 合法，`int j = null;` 会报错。
+
+### 4. 总结
+
+- **装箱：** 基本类型 → 包装类对象（int → Integer）
+- **拆箱：** 包装类对象 → 基本类型（Integer → int）
+
+> 装箱与拆箱让基本类型可以参与更多 Java 机制（如集合、泛型、方法调用等），赋予更多功能和灵活性。
+
+
+
+
+## Number && Math 类
+![](JAVA.assets/2025-10-09-11-42-54.png)
+java的数字数据类型继承语于Number类，Number类提供了一些方法用于将数字转换为不同的基本数据类型。
+### Number类的方法
+```java
+
+Number num = 2.33;
+System.out.println("intValue: " + num.intValue());       // 转换为int,会截断小数部分
+System.out.println("longValue: " + num.longValue());     // 转换为long,会截断小数部分
+System.out.println("floatValue: " + num.floatValue());   // 转换为float,会保留小数部分
+System.out.println("doubleValue: " + num.doubleValue()); // 转换为double,会保留小数部分
+```
+### 大数值处理
+```java
+import java.math.BigDecimal;
+import java.math.BigInteger;
+public class BigNumberDemo {
+    public static void main(String[] args) {
+        // 使用BigInteger处理大整数
+        BigInteger bigInt1 = new BigInteger("123456789012345678901234567890");
+        BigInteger bigInt2 = new BigInteger("987654321098765432109876543210");
+        
+        BigInteger bigIntSum = bigInt1.add(bigInt2);
+        System.out.println("大整数相加: " + bigIntSum);
+        
+        // 使用BigDecimal处理高精度小数
+        BigDecimal bigDec1 = new BigDecimal("0.1");
+        BigDecimal bigDec2 = new BigDecimal("0.2");
+        
+        BigDecimal bigDecSum = bigDec1.add(bigDec2);
+        System.out.println("高精度小数相加: " + bigDecSum);
+        
+        // 演示浮点数精度问题
+        double doubleSum = 0.1 + 0.2;
+        System.out.println("普通浮点数相加: " + doubleSum); // 可能输出0.30000000000000004
+    }
+}
+```
+
+### math类的方法
+math的方法均为静态方法
+```java
+import java.lang.Math;
+public class Test {  
+    public static void main (String []args)  
+    {  
+        System.out.println("90 度的正弦值：" + Math.sin(Math.PI/2));  
+        System.out.println("0度的余弦值：" + Math.cos(0));  
+        System.out.println("60度的正切值：" + Math.tan(Math.PI/3));  
+        System.out.println("1的反正切值： " + Math.atan(1));  
+        System.out.println("π/2的角度值：" + Math.toDegrees(Math.PI/2));  
+        System.out.println(Math.PI);  
+    }  
+}
+```
+## Character类
+Character类是Java中用于处理单个字符的类，提供了多种方法来操作和检查字符的属性。Character类中的方法大多数是静态的，可以直接通过类名调用，而不需要创建Character类的实例。
+（才晓得char是Character的缩写）
+``` java
+char ch = 'a';
+ 
+// Unicode 字符表示形式
+char uniChar = '\u039A'; 
+ 
+// 字符数组
+char[] charArray ={ 'a', 'b', 'c', 'd', 'e' };
+```
+### 转译符
+| 转义字符 | 说明               |
+| :------- | :----------------- |
+| `\ddd`   | 八进制表示的字符   |
+| `\uxxxx` | 十六进制表示的字符 |
+| `\'`     | 单引号             |
+| `\"`     | 双引号             |
+| `\\`     | 反斜杠             |
+| `\n`     | 换行               |
+| `\r`     | 回车               |
+| `\t`     | 制表符             |
+| `\b`     | 退格               |
+| `\f`     | 换页               |
+| `\0`     | 空字符（null字符） |
+| `\a`     | 响铃（警告）       |
+| `\v`     | 垂直制表符         |
+### Character类常用方法
+
+| 方法名               | 说明                                                         |
+| :------------------- | :----------------------------------------------------------- |
+| `isDigit(char ch)`   | 检查字符是否为数字                                           |
+| `isLetter(char ch)`  | 检查字符是否为字母                                           |
+| `isWhitespace(char ch)` | 检查字符是否为空白字符（如空格、制表符等）               |
+| `toUpperCase(char ch)` | 将字符转换为大写字母                                     |
+| `toLowerCase(char ch)` | 将字符转换为小写字母                                     |
+| `isUpperCase(char ch)` | 检查字符是否为大写字母                                     |
+| `isLowerCase(char ch)` | 检查字符是否为小写字母                                     |
+| `toString(char ch)`    | 将字符转换为字符串                                       |
+| `compare(char x, char y)` | 比较两个字符的大小，返回一个整数值（负数、零或正数） |
+| `getNumericValue(char ch)` | 获取字符的数值表示（如果字符是数字）               | 
+## StringBuffer类
+![](JAVA.assets/2025-10-09-12-24-22.png)
+如果操作的是可变长度的字符串，建议使用StringBuffer类
+
+
+
+
