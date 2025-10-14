@@ -883,6 +883,145 @@ char[] charArray ={ 'a', 'b', 'c', 'd', 'e' };
 ![](JAVA.assets/2025-10-09-12-24-22.png)
 如果操作的是可变长度的字符串，建议使用StringBuffer类
 
+## java的方法
+
+`System.out.println()`是一个Java标准库中的方法，用于在控制台输出文本信息。它是Java中最常用的输出方法之一，属于`java.lang.System`类的`out`静态成员，该成员是一个`PrintStream`对象。
+方法的定义格式如下：
+
+```java
+修饰符 返回值类型 方法名(参数类型 参数名){
+    ...
+    方法体
+    ...
+    return 返回值;
+}
+```
+## 可变参数
+可变参数允许你传递任意数量的参数给一个方法。使用可变参数时，参数类型后面需要加上省略号（...）。在方法内部，可变参数被视为一个数组。
+```java
+public class VarargsDemo {
+    // 定义一个可变参数的方法
+    public static int sum(int... numbers) {
+        int total = 0;
+        for (int num : numbers) {
+            total += num;
+        }
+        return total;
+    }
+
+    public static void main(String[] args) {
+        // 调用可变参数方法
+        System.out.println("Sum of 1, 2, 3: " + sum(1, 2, 3)); // 输出: 6
+        System.out.println("Sum of 10, 20: " + sum(10, 20));   // 输出: 30
+        System.out.println("Sum of no numbers: " + sum());      // 输出: 0
+        System.out.println("Sum of 5, 15, 25, 35: " + sum(5, 15, 25, 35)); // 输出: 80
+    }
+}
+``` 
 
 
 
+## stream流、File文件、IO
+![](JAVA.assets/2025-10-14-21-12-22.png)
+这三个东西使得程序可以和外部的数据进行交互
+
+字符流和字节流分别代表字符和字节的输入输出流。
+1. 字节流（单位byte）：以字节为单位进行数据的输入输出，适用于所有类型的文件（如图片、音频、视频等）。常用的字节流类有InputStream和OutputStream及其子类。
+2. 字符流（单位char）：以字符为单位进行数据的输入输出，适用于文本文件（如.txt、.java等）。常用的字符流类有Reader和Writer及其子类。
+### 控制台输入输出流（System.in, System.out）
+最常见的两种为BufferedReader和Scanner，后者方便，前者性能好
+#### BufferedReader
+```java
+//使用 BufferedReader 在控制台读取字符
+ 
+import java.io.*;
+ 
+public class BRRead {
+    public static void main(String[] args) throws IOException {
+        char c;
+        // 使用 System.in 创建 BufferedReader
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        System.out.println("输入字符, 按下 'q' 键退出。");
+        // 读取字符
+        do {
+            c = (char) br.read();
+            System.out.println(c);
+        } while (c != 'q');
+    }
+}
+```
+
+``` java
+//使用 BufferedReader 在控制台读取字符
+import java.io.*;
+ 
+public class BRReadLines {
+    public static void main(String[] args) throws IOException {
+        // 使用 System.in 创建 BufferedReader
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        String str;
+        System.out.println("Enter lines of text.");
+        System.out.println("Enter 'end' to quit.");
+        do {
+            str = br.readLine();
+            System.out.println(str);
+        } while (!str.equals("end"));
+    }
+}
+```
+
+#### Scanner
+```java
+// 使用 Scanner 在控制台读取输入
+import java.util.Scanner;
+public class ScannerRead {
+    public static void main(String[] args) {
+        // 创建 Scanner 对象，读取控制台输入
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Enter lines of text.");
+        System.out.println("Enter 'end' to quit.");
+        String line;
+        do {
+            line = scanner.nextLine(); // 读取一行输入
+            System.out.println(line);   // 输出读取的内容
+        } while (!line.equals("end"));
+        scanner.close(); // 关闭 Scanner
+    }
+}
+```
+
+## 读写文件
+``` java
+InputStream f = new FileInputStream("input.txt"); // 读取文件
+OutputStream f2 = new FileOutputStream("output.txt"); // 写入文件
+```
+获得了OutputStream和InputStream的对象之后，就可以使用read()和write()方法进行读写操作了
+```java
+import java.io.*;
+public class FileCopy {
+    public static void main(String[] args) {
+        try {
+            // 创建输入流，读取源文件
+            InputStream in = new FileInputStream("source.txt");
+            // 创建输出流，写入目标文件
+            OutputStream out = new FileOutputStream("destination.txt");
+            
+            byte[] buffer = new byte[1024]; // 缓冲区
+            int bytesRead;
+            
+            // 读取源文件并写入目标文件
+            while ((bytesRead = in.read(buffer)) != -1) {
+                out.write(buffer, 0, bytesRead);
+            }
+            
+            // 关闭流
+            in.close();
+            out.close();
+            
+            System.out.println("文件复制完成！");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}   
+```
