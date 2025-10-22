@@ -454,3 +454,261 @@ int mkdir(const char *pathname, mode_t mode);
 - mode：目录的权限，通常使用八进制表示，例如 0755。
 - 返回值：成功时返回0，失败时返回-1，并设置 errno 变量
   
+  ### opendir / closedir 函数
+  打开和关闭目录
+```c
+#include <dirent.h>
+#include <sys/types.h>
+//输入指定路径打开目录
+int main (int argc, char *argv[])
+{
+    DIR *dirp;
+    dirp = opendir(argv[1]); // 打开目录
+    if (dirp == NULL)
+    {
+        perror("opendir failed");
+        return -1;
+    }
+    else 
+    {
+        printf("Directory opened successfully\n");
+    }
+    if (closedir(dirp) == -1) // 关闭目录
+    {
+        perror("closedir failed");
+        return -1;
+    }
+    else 
+    {
+        printf("Directory closed successfully\n");
+    }
+    return 0;
+}
+```
+- name：要打开的目录路径。
+- dirp：要关闭的目录流指针。
+- 返回值：opendir 成功时返回目录流指针，失败时返回 NULL 并设置 errno 变量；closedir 成功时返回0，失败时返回-1 并设置 errno 变量。
+- 打开目录后，可以使用 readdir 函数读取目录中的条目。
+
+
+### readdir函数
+读取目录条目
+```c
+#include <dirent.h>
+struct dirent *readdir(DIR *dirp);
+```
+
+- dirp：要读取的目录流指针。
+- 返回值：成功时返回指向 dirent 结构的指针，失败或到达目录末尾时返回 NULL。
+- 读取到的 dirent 结构包含以下字段：
+  - d_ino：文件的 inode 编号,使用ls -i查看。
+  - d_name：文件名字符串。
+  - d_type：文件类型（例如 DT_REG 表示常规文件，DT_DIR 表示目录）。
+  - d_reclen：目录项长度。
+  - d_namlen：文件名长度。
+  - d_off：下一个目录项的偏移量。
+  - d_pad：保留字段，未使用。
+  - 通过循环调用 readdir，可以遍历目录中的所有条目，直到返回 NULL 表示目录末尾。
+  - 读取目录条目后，可以使用 stat 函数获取更多关于文件的信息，例如权限、大小和修改时间等。
+
+### 示例代码
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <dirent.h>
+int main(int argc, char *argv[])
+{
+    DIR *dirp;
+    struct dirent *entry;
+
+    if (argc != 2)
+    {
+        printf("Usage: %s <directory_path>\n", argv[0]);
+        return -1;
+    }
+
+    dirp = opendir(argv[1]);
+    if (dirp == NULL)
+    {
+        perror("opendir failed");
+        return -1;
+    }
+
+    printf("Contents of directory %s:\n", argv[1]);
+    while ((entry = readdir(dirp)) != NULL)  //输出目录内容
+    {
+        printf("%s\n", entry->d_name);
+    }
+
+    if (closedir(dirp) == -1)
+    {
+        perror("closedir failed");
+        return -1;
+    }
+
+    return 0;
+}
+```
+
+## 动态库（.so）和静态库（.a）的区别
+- 静态库（.a 文件）在编译时被链接到可执行文件中，生成的可执行文件包含了库的代码，因此不需要在运行时依赖外部库文件。静态库的优点是运行时不依赖外部文件，缺点是可执行文件较大，且更新库需要重新编译可执行文件。
+- 动态库（.so 文件）在运行时被加载到内存中，可执行文件只包含对动态库的引用。动态库的优点是节省内存空间，多个程序可以共享同一个动态库，更新库时不需要重新编译可执行文件。缺点是运行时需要依赖外部库文件，如果库文件缺失或版本不兼容，可能导致程序无法运行。
+
+### 创建静态库
+```bash
+ar rcs libmylib.a file1.o file2.o
+```
+- ar 命令用于创建和管理静态库文件。
+- rcs 参数的含义：
+- r：将文件插入到库中，如果文件已经存在则替换。
+- c：创建库文件，如果库文件不存在则创建一个新的。
+- s：创建索引，便于快速查找库中的符号。
+- libmylib.a 是要创建的静态库文件名，通常以 lib 开头，以 .a 结尾。
+- file1.o file2.o 是要包含在静态库中的目标文件，可以包含多个目标文件。
+- 创建静态库后，可以使用 ar t libmylib.a 命令查看库中的内容。
+### 使用静态库
+```bash
+
+gcc main.c -L. -lmylib -o myprogram
+```
+- -L. 指定库文件所在的目录，这里使用当前目录（.）。
+- -lmylib 指定要链接的库文件，这里是 libmylib.a，注意省略了前缀 lib 和后缀 .a。
+- main.c 是包含 main 函数的源文件。
+- -o myprogram 指定生成的可执行文件名为 myprogram。
+随后就能在代码编写的时候声明并且使用静态库当中直接声明、调用
+![](Linux.assets/2025-10-22-15-23-14.png) 
+
+### 创建动态库
+```bash
+gcc -shared -fPIC -o libmylib.so file1.c file2.c
+```
+- -shared 参数告诉编译器生成一个共享库（动态库）。
+- -fPIC 参数表示生成与位置无关的代码（Position Independent Code），这是创建动态库时的必要选项。
+- -o libmylib.so 指定生成的动态库文件名，这里是 libmylib.so，通常以 lib 开头，以 .so 结尾。
+- file1.c file2.c 是要包含在动态库中的源文件，可以包含多个源文件。
+
+### 使用动态库
+1. 添加到环境变量
+2. 将生成的动态库文件复制到系统的库目录下，例如 /usr/lib 或 /usr/local/lib 系统默认会搜索这些目录（不建议）
+3. 修改 /etc/ld.so.conf 文件，添加动态库所在目录，然后运行 ldconfig 命令更新动态库缓存（推荐）
+
+最后运行 ldconfig 命令更新动态库缓存
+```bash
+gcc main.c -L. -lmylib -o myprogram
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./home/test  # 设置动态库路径
+``` 
+## 进程
+进程就是正在运行的程序，每个进程都存在一个PID
+不同的进程之间是相互独立的，进程之间通过IPC进行通信，基于操作系统内核进行管理和调度。
+### IPC 进程间通信
+IPC（Inter-Process Communication）即进程间通信，是指不同进程之间交换数据和信息的机制。常见的IPC方法包括管道（Pipe）、命名管道（Named Pipe）、消息队列（Message Queue）、共享内存（Shared Memory）和信号量（Semaphore）等。
+对于存在于一个网络当中的不同计算机上的进程之间的通信，通常使用套接字（Socket）进行通信。
+
+### fork创建进程
+```c
+#include <stdio.h>
+#include <unistd.h>
+int main()
+{
+    pid_t pid = fork(); // 创建子进程
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    else if (pid == 0)
+    {
+        // 子进程执行的代码
+        printf("This is the child process. PID: %d\n, parent PID: %d\n", getpid(), getppid());
+    }
+    else
+    {
+        // 父进程执行的代码
+        printf("This is the parent process. PID: %d, Child PID: %d\n", getpid(), pid);
+    }
+    return 0;
+}
+```
+fork函数使得原先单独的进程变为了两个进程，分别是父进程和子进程。父进程和子进程从fork函数返回时的返回值不同，父进程返回子进程的PID，子进程返回0。
+假设父进程的PID为1000，那么执行上述代码后会产生两个输出：
+```
+This is the parent process. PID: 1000, Child PID: 1001
+This is the child process. PID: 1001, parent PID: 1000
+```
+因为程序在父进程和子进程中都会执行printf语句，所以会有两行输出。但是在子进程当中还是执行了fork(子进程本身就是从fork函数开始运行的)，处于子进程的它不会再继续创建新的子进程，而是返回0，继续执行子进程的代码。
+
+### exec函数族
+
+1. 当进程不再能够满足需求时，可以通过 exec 函数族来替换当前进程的映像，从而运行一个新的程序。
+2. 如果进程想执行另一个程序，可使用fork创建一个子进程，然后在子进程中调用exec函数族来加载并运行新的程序。
+3. exec函数族包括 execv、execl、execvp、execlp 等
+#### execl函数
+execl是最常见的exec函数族之一，适用于参数数量已知且较少的情况。
+函数原型（常见 POSIX 形式）
+int execl(const char *path, const char *arg0, ..., (char *)0);
+
+path：要执行的程序路径
+
+arg0：新程序的 argv[0]（通常放程序名）
+
+后面是可变数量的字符串，代表 argv[1], argv[2], ...
+
+末尾必须以 (char *)NULL 或 NULL 终止，内核/库通过这个 NULL 来知道参数到此结束
+```c
+#include <stdio.h>
+#include <unistd.h>
+int main()
+{
+    pid_t pid = fork(); // 创建子进程
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    else if (pid == 0)
+    {
+        // 子进程执行新的程序
+        execl("/bin/ls", "ls", "-l", NULL); // 使用execl执行ls命令
+        perror("execl failed"); // 如果execl返回，说明执行失败
+    }
+    else
+    {
+        // 父进程等待子进程结束
+        wait(NULL);
+        printf("Child process finished.\n");
+    }
+    return 0;
+}
+```
+
+- execl函数用于执行一个新的程序，替换当前进程的映像。
+- 第一个参数是要执行的程序的路径，后续参数是传递给新程序的命令行参数，最后一个参数是 NULL，表示参数列表的结束。
+- 在子进程中调用 execl 后，当前进程的映像将被新的程序替换，如果 execl 成功执行，后续的代码将不会被执行。如果 execl 失败，将返回 -1，并设置 errno 变量。
+
+
+### ps和kill
+- ps 命令用于查看当前系统中的进程信息。常用选项包括：
+  - ps aux：显示所有用户的所有进程。
+  - ps -ef：显示完整格式的进程信息。
+- kill 命令用于向进程发送信号，常用选项包括：
+- kill PID：向指定的进程发送终止信号（SIGTERM）。
+- kill -9 PID：强制终止指定的进程（SIGKILL）。
+- kill -l：列出所有可用的信号名称。
+- kill -s SIGNAL PID：向指定的进程发送特定的信号。
+
+![](Linux.assets/2025-10-22-17-52-14.png)
+
+```bash
+ps aux          # 查看所有进程
+ps aux | grep myprogram  # 查找名为myprogram的进程
+kill 1234      # 终止PID为1234的进程
+kill -9 1234   # 强制终止PID为1234的进程
+```
+
+
+### 孤儿进程和僵尸进程
+- 孤儿进程是指其父进程已经终止的进程。当一个进程的父进程终止时，孤儿进程会被 init 进程（PID 1）收养，init 进程会负责清理孤儿进程的资源。
+- 僵尸进程是指已经终止但其父进程尚未调用 wait() 或 waitpid() 函数来获取其终止状态的进程。僵尸进程仍然占用系统资源，直到其父进程获取其终止状态为止。
+
+
+
