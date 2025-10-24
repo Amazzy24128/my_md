@@ -124,7 +124,7 @@ for (int i = 0; i < numbers.length; i++) {
     System.out.println(numbers[i]);
 }
 ```
-数组声明的时候，使用new关键字进行初始化
+数组声明的时候，使用new关键字进行动态初始化
 ```java
 int[] array = new int[5]; // 动态初始化，内容可后续赋值
 array[0] = 10; // 给数组的第一个元素赋值
@@ -132,6 +132,16 @@ array[1] = 20; // 给数组的第二个元素赋值
 System.out.println("数组第一个元素: " + array[0]);
 System.out.println("数组第二个元素: " + array[1]);
 ```
+数组可以声明为多维数组，且形状不一定是矩形
+```java
+int[][] multiArray = {
+    {1, 2, 3},
+    {4, 5},
+    {6, 7, 8, 9} // 完全合法 
+};
+```
+
+动态和静态初始化其实关键区别在于赋值
 #### for-each循环
 ```java
 int[] numbers = {1, 2, 3, 4, 5};
@@ -1025,3 +1035,33 @@ public class FileCopy {
     }
 }   
 ```
+## 异常处理
+### try-catch语句
+```java
+
+try {
+    // 可能抛出异常的代码
+} catch (ExceptionType1 e1) {
+    // 处理 ExceptionType1 类型的异常
+} catch (ExceptionType2 e2) {
+    // 处理 ExceptionType2 类型的异常
+} finally {
+    // 无论是否发生异常，都会执行的代码（可选）
+}
+```
+### throw语句
+```java
+public void someMethod() throws ExceptionType {
+    // 可能抛出 ExceptionType 类型异常的代码
+    if (someCondition) {
+        throw new ExceptionType("异常信息");
+    }
+}
+```
+### throws语句
+```java
+public void anotherMethod() throws ExceptionType1, ExceptionType2 {
+    // 可能抛出 ExceptionType1 或 ExceptionType2 类型异常的代码
+}
+```
+
