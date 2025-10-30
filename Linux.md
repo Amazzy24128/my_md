@@ -712,3 +712,305 @@ kill -9 1234   # 强制终止PID为1234的进程
 
 
 
+### wait 函数
+有些时候子进程的资源需要父进程来回收，否则子进程会变成僵尸进程，占用系统资源。wait函数用于让父进程等待子进程终止，并回收子进程的资源。
+```c
+#include <sys/types.h>
+#include <sys/wait.h>
+pid_t wait(int *status);
+```
+- status：用于存储子进程的终止状态，可以为 NULL。
+- 返回值：成功时返回终止的子进程的 PID，失败时返回 -1 并设置 errno 变量。
+- wait 函数会阻塞父进程，直到有一个子进程终止。如果有多个子进程终止，wait 会返回其中一个子进程的 PID。
+
+
+status是一个int类型的指针，通过它可以获取子进程的终止状态。可以使用宏 WIFEXITED(status) 和 WEXITSTATUS(status) 来检查子进程是否正常终止以及获取其退出码。
+当WIFEXITED(status)为真时，表示子进程正常终止，可以使用WEXITSTATUS(status)获取子进程的退出码。
+当WIFEXITED(status)为假时，表示子进程异常终止，例如被信号杀死。
+
+```c
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <stdlib.h>
+int main (void)
+{
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    else if (pid == 0)
+    {
+        // 子进程执行的代码
+        printf("Child process. PID: %d\n", getpid());
+        exit(42); // 子进程以退出码42终止
+    }
+    else
+    {
+        // 父进程等待子进程结束
+        int status;
+        pid_t terminated_pid = wait(&status);
+        if (terminated_pid == -1)
+        {
+            perror("wait failed");
+            return -1;
+        }
+        if (WIFEXITED(status))
+        {
+            int exit_code = WEXITSTATUS(status);
+            printf("Child process %d terminated with exit code %d\n", terminated_pid, exit_code);
+        }
+        else
+        {
+            printf("Child process %d terminated abnormally\n", terminated_pid);
+        }
+    }
+    return 0;
+}
+```
+
+### 守护进程
+守护进程运行在后台，不能直和用户交互。守护进程一定是init进程的子进程。
+创建守护进程的步骤：
+1. 调用 fork 创建子进程，父进程exit()退出。此时子进程成为孤儿进程，被 init 进程收养。
+2. 子进程调用 setsid() 创建新的会话，成为新会话的首进程，脱离终端控制。
+3. 调用chdir("/")切换工作目录到根目录，避免占用当前目录。（不是必要的）
+4. 重设umask为0，确保守护进程创建的文件具有预期的权限。（不是必要的）
+5. 关闭文件描述符（0,1,2），节省资源。（不是必要的）
+6. 守护进程开始执行其主要的任务。
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+int main()
+{
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    if (pid > 0)
+    {
+        exit(0); // 父进程退出
+    }
+    if (pid == 0)
+    {
+        setsid(); // 创建新会话
+        chdir("/"); // 切换工作目录到根目录
+        umask(0); // 重设文件权限掩码
+        close(0); // 关闭标准输入
+        close(1); // 关闭标准输出
+        close(2); // 关闭标准错误输出
+        // 守护进程的主要任务
+        while (1)
+        {
+            // 执行守护进程的任务
+            sleep(10); // 示例：每10秒执行一次任务
+        }
+    }
+    
+
+    return 0;
+}
+```
+
+### 管道通信
+管道之间的通信是阻塞的，即读操作会阻塞直到有数据可读，写操作会阻塞直到有空间可写。
+管道分有名和无名管道。他们本质上是操作系统提供的一种特殊的文件类型，通过读写这个文件进行通信。c语言为此提供了接口pipe和mkfifo函数。
+#### 无名管道
+无名管道为半双工通信，父子进程之间通信。如果两个进程没有亲缘关系，则无法使用无名管道进行通信。
+使用pipe函数创建无名管道，获得2个文件描述符，fd[0]用于读，fd[1]用于写。
+```c
+#include <stdio.h>
+#include <unistd.h>int main()
+{
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    if (pid > 0)
+    {
+        exit(0); // 父进程退出
+    }
+    if (pid == 0)
+    {
+        setsid(); // 创建新会话
+        chdir("/"); // 切换工作目录到根目录
+        umask(0); // 重设文件权限掩码
+        close(0); // 关闭标准输入
+        close(1); // 关闭标准输出
+        close(2); // 关闭标准错误输出
+        // 守护进程的主要任务
+        while (1)
+        {
+            // 执行守护进程的任务
+            sleep(10); // 示例：每10秒执行一次任务
+        }
+    }
+    
+
+    return 0;
+
+
+这个exit（0）和在main里面‘return有什么区别
+int main()
+{
+    int fd[2];
+    if (pipe(fd) == -1) // fork前创建管道
+    {
+        perror("Pipe failed");
+        return -1;
+    }
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;  
+    }
+    else if (pid == 0)
+    {
+        // 子进程：写入数据到管道
+        close(fd[0]); // 关闭读端
+        const char *message = "Hello from child process!";
+        write(fd[1], message, sizeof(message));
+        close(fd[1]); // 关闭写端
+    }
+    else
+    {
+        // 父进程：从管道读取数据
+        close(fd[1]); // 关闭写端
+        char buffer[100];
+        read(fd[0], buffer, sizeof(buffer)); //阻塞等待子进程写入数据
+        printf("Parent received: %s\n", buffer);
+        close(fd[0]); // 关闭读端
+    }
+    return 0;
+}
+```
+#### 有名管道
+有名管道可以在没有亲缘关系的进程之间进行通信。使用mkfifo函数创建有名管道，指定路径和权限。
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+int main()
+{
+    const char *fifo_path = "/tmp/my_fifo";
+    //检查有名管道是否存在
+    if (access(fifo_path, F_OK) == -1) // 不存在
+    {
+        // 创建有名管道
+        if (mkfifo(fifo_path, 0666) == -1)
+        {
+            perror("mkfifo failed");
+            return -1;
+        }
+    } 
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    else if (pid == 0)
+    {
+        // 子进程：写入数据到管道
+        int fd = open(fifo_path, O_WRONLY);
+        const char *message = "Hello from child process!";
+        write(fd, message, sizeof(message));
+        close(fd);
+    }
+    else
+    {
+        // 父进程：从管道读取数据
+        int fd = open(fifo_path, O_RDONLY);
+        char buffer[100];
+        read(fd, buffer, sizeof(buffer));
+        printf("Parent received: %s\n", buffer);
+        close(fd);
+    }
+    return 0;
+}
+```
+实际上就是创建了一个特殊的文件，进程通过读写这个文件进行通信。
+
+也可以通过bash命令创建有名管道
+```bash
+mkfifo /tmp/my_fifo  # 创建有名管道
+```
+### 信号通信
+信号编号内容实际上是一个整数，不同的整数代表不同的信号类型。
+使用kill -l 在命令行查看系统支持的信号类型
+
+#### kill函数发送信号
+参数为PID和信号编号
+```c
+#include <sys/types.h>
+#include <signal.h>
+int kill(pid_t pid, int sig);
+```
+
+
+#### raise函数发送信号
+
+参数为信号编号
+```c
+#include <signal.h>
+int raise(int sig);
+```
+
+自己杀死自己
+```c
+#include <stdio.h>
+#include <signal.h>
+int main()
+{
+    printf("Sending SIGKILL to self\n");
+    raise(9);
+    printf("This line will not be printed\n"); // 不会被执行
+}
+```
+
+
+#### alarm函数发送信号
+参数为秒数，到达时间后向当前进程发送SIGALRM信号（非阻塞）
+SIGALRM信号是一个定时器信号，通常用于通知进程某个定时事件已经发生。当进程设置了一个定时器后，操作系统会在定时器到期时向该进程发送 SIGALRM 信号。进程可以通过捕获该信号来执行特定的操作，例如超时处理、周期性任务等。
+如果进程不捕获该信号，默认的行为是终止进程。因此，使用 SIGALRM 信号时，通常会结合信号处理函数来定义在定时器到期时要执行的操作。
+```c
+#include <unistd.h>
+unsigned int alarm(unsigned int seconds);
+```
+
+```c
+#include <stdio.h>
+#include <signal.h>
+#include <unistd.h>
+void handle_sigalrm(int sig)
+{
+    printf("Received SIGALRM signal\n");
+}
+int main()
+{
+    signal(SIGALRM, handle_sigalrm); // 注册信号处理函数
+    printf("Setting alarm for 5 seconds\n");
+    alarm(5); // 5秒后发送SIGALRM信号  
+    while (1)
+    {
+        // 主循环
+        printf("Waiting for alarm...\n");
+        sleep(1);
+    }
+    return 0;
+}
+```
