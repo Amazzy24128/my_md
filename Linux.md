@@ -1014,3 +1014,525 @@ int main()
     return 0;
 }
 ```
+### 通过信号使得进程解除休眠
+
+假设有一个c代码为如下的进程
+```c
+#include <stdio.h>
+#include <unistd.h>
+int main()
+{
+    printf("Process going to sleep for 10 seconds...\n");
+    pause(); // 休眠
+    printf("Process woke up after sleep.\n");
+    return 0;
+}
+```
+该进程会一直休眠，直到收到一个信号才会被唤醒
+可以通过另一个进程发送信号来唤醒它
+```c
+#include <signal.h>
+
+// 发送信号给指定进程
+kill(pid, SIGCONT);  // SIGCONT 信号用于继续已停止的进程
+```
+```c
+#include <unistd.h>
+
+// 通过系统调用直接唤醒进程
+syscall(SYS_RESTART);  // 具体系统调用号可能因操作系统而异
+```
+
+### 信号处理
+信号的处理存在三种方式：
+1. 忽略信号：使用 SIG_IGN 忽略特定的信
+2. 默认处理：使用 SIG_DFL 恢复信号的默认处理方式
+3. 自定义处理函数：使用 signal 函数注册一个自定义的信号处理函数
+#### signal函数注册信号处理函数
+```c
+#include <signal.h>
+void handle_signal(int sig)
+{
+    printf("Received signal %d\n", sig);
+}
+int main()
+{
+    signal(SIGINT, handle_signal); // 注册信号处理函数
+    signal(SIGTERM, SIG_IGN); // 忽略SIGTERM信号
+    signal(SIGQUIT, SIG_DFL); // 恢复SIGQUIT的默认处理
+    while (1)
+    {
+        printf("Waiting for signal...\n");
+        sleep(1);
+    }
+    return 0;
+}
+```
+### 共享内存
+
+共享内存就是多个进程访问统一块内存区域，从而实现进程间通信的一种方式。共享内存的优点是速度快，因为数据不需要在进程间复制，而是直接在共享的内存区域中读写。
+-使用ipcs命令查看系统中的共享内存段
+```bash
+ipcs -m
+```
+#### shmget创建共享内存
+使用shmget函数创建共享内存，返回共享内存标识符
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+int shmget(key_t key, size_t size, int shmflg);
+```
+- key：共享内存的键值，可以使用 ftok 函数生成唯一键或者填入 IPC_PRIVATE 创建私有共享内存
+- size：共享内存的大小，以字节为单位、
+- shmflg：共享内存的标志，可以是以下值的按位或：
+  - IPC_CREAT：如果共享内存不存在则创建。
+  - IPC_EXCL：与 IPC_CREAT 一起使用，如果共享内存已经存在则返回错误。
+  - 权限标志（如 0666）指定共享内存的访问权限。
+- 返回值：成功时返回共享内存标识符，失败时返回 -1
+
+
+#### ftok函数生成key
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+key_t ftok(const char *pathname, int proj_id);
+```
+- pathname：用于生成键的文件路径，通常是一个已存在的文件。
+- proj_id：一个整数值，用于区分不同的键，通常是一个字符
+- 返回值：成功时返回生成的键值，失败时返回 -1
+
+
+
+#### shmat实现内存映射
+使用shmat函数将共享内存映射到进程的地址空间，返回指针
+```c
+#include <sys/types.h>
+#include <sys/shm.h>
+void *shmat(int shmid, const void *shmaddr, int shmflg);
+```
+
+- shmid：共享内存标识符，由 shmget 函数返回。
+- shmaddr：指定映射的地址，通常设置为 NULL 让系统选择地址
+- shmflg：映射标志，可以是以下值的按位或：
+  - SHM_RDONLY：以只读方式映射共享内存。
+  - 0：以读写方式映射共享内存。
+- 返回值：成功时返回指向共享内存的指针，失败时返回 (void *) -1 并设置 errno 变量（errno用来表示最近一次库函数或系统调用出错原因的全局错误码变量）。
+#### shmdt解除内存映射
+使用shmdt函数解除共享内存的映射
+```c
+#include <sys/types.h>
+#include <sys/shm.h>
+int shmdt(const void *shmaddr);
+```
+- shmaddr：要解除映射的共享内存地址，由 shmat 函数
+- 返回。
+- 值：成功时返回0，失败时返回-1 并设置 errno 变量。
+删掉的是映射，和内核当中的共享内存并没有关系
+#### shmctl控制共享内存
+使用shmctl函数控制共享内存的操作，例如删除共享内存
+```c
+#include <sys/types.h>
+#include <sys/shm.h>
+int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+```
+- shmid：共享内存标识符，由 shmget 函数返回。
+- cmd：控制命令，可以是以下值之一：
+  - IPC_RMID：删除共享内存段。
+  - IPC_STAT：获取共享内存段的状态信息，存储在 buf 指向的结构中。
+  - IPC_SET：设置共享内存段的属性，使用 buf 指向的结构。
+  - 返回值：成功时返回0，失败时返回-1 并设置 errno 变量。
+  - 删除共享内存段后，所有映射到该共享内存的进程将无法再访问该内存区域。
+### 共享内存示例代码
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <string.h>
+
+#define SHM_SIZE 1024  // 共享内存大小
+int main()
+{
+    key_t key = ftok("shmfile", 65); // 生成唯一键
+    if (key == -1)
+    {
+        perror("ftok failed");
+        return -1;
+    }
+
+    int shmid = shmget(key, SHM_SIZE, 0666 | IPC_CREAT); // 创建共享内存
+    if (shmid == -1)
+    {
+        perror("shmget failed");
+        return -1;
+    }
+
+    char *str = (char *)shmat(shmid, NULL, 0); // 映射共享内存
+    if (str == (char *)-1)
+    {
+        perror("shmat failed");
+        return -1;
+    }
+
+    // 写入数据到共享内存
+    strcpy(str, "Hello from shared memory!");
+
+    printf("Data written to shared memory: %s\n", str);
+    while (1); // 保持进程运行，等待其他进程读取数据
+    // 解除映射
+    if (shmdt(str) == -1)
+    {
+        perror("shmdt failed");
+        return -1;
+    }
+
+    // 删除共享内存
+    if (shmctl(shmid, IPC_RMID, NULL) == -1)
+    {
+        perror("shmctl failed");
+        return -1;
+    }
+
+    return 0;
+}
+```
+
+
+另一个进程
+``` c
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <string.h>
+#include <errno.h>
+
+#define SHM_SIZE 1024  // 要与写者一致
+
+int main(void)
+{
+    key_t key = ftok("shmfile", 65); // 必须与写者相同
+    if (key == -1) {
+        perror("ftok");
+        return 1;
+    }
+
+    // 不要使用 IPC_CREAT，否则可能创建新的段（如果你只是想打开已有段，去掉 IPC_CREAT）
+    int shmid = shmget(key, SHM_SIZE, 0666);
+    if (shmid == -1) {
+        perror("shmget");
+        return 1;
+    }
+
+    char *data = (char *)shmat(shmid, NULL, 0);
+    if (data == (char *)-1) {
+        perror("shmat");
+        return 1;
+    }
+
+    // 示例：如果写者用第 0 字节作为就绪标志，可以等待
+    // while (data[0] != 1) { /* busy wait，实际使用应用信号量或睡眠 */ }
+
+    printf("Data read from shared memory: %s\n", data);
+
+    if (shmdt(data) == -1) {
+        perror("shmdt");
+        return 1;
+    }
+
+    // 如果你想由 reader 来删除共享内存（慎用），可以解除下面注释
+    // if (shmctl(shmid, IPC_RMID, NULL) == -1) { perror("shmctl"); }
+
+    return 0;
+}
+```
+- 该示例展示了如何使用共享内存进行进程间通信。一个进程创建共享内存并写入数据，另一个进程映射该共享内存并读取数据。
+- 注意：在实际应用中，建议使用信号量或其他同步机制来协调对共享内存的访问，避免竞争条件和数据不一致的问题。   
+### 消息队列
+和FreeRTOS中的消息队列类似，是一种进程间通信机制。消息队列允许一个进程将消息发送到队列中，另一个进程从队列中接收消息。消息队列的优点是可以实现异步通信，发送者和接收者不需要同时运行。
+使用ipcs查看系统中的消息队列
+```bash
+ipcs -q
+```
+#### msgget创建消息队列
+使用msgget函数创建或获取消息队列，返回消息队列标识符
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+int msgget(key_t key, int msgflg);
+```
+- key：消息队列的键值，可以使用 ftok 函数生成唯一键或者填入 IPC_PRIVATE 创建私有消息队列
+- msgflg：消息队列的标志，可以是以下值的按位或：
+  - IPC_CREAT：如果消息队列不存在则创建。
+  - IPC_EXCL：与 IPC_CREAT 一起使用，如果消息队列已经存在则返回错误。
+  - 权限标志（如 0666）指定
+#### msgctl控制消息队列
+使用msgctl函数控制消息队列的操作，例如删除消息队列
+```c
+#include <sys/types.h>
+#include <sys/msg.h>    
+int msgctl(int msqid, int cmd, struct msqid_ds *buf);
+```
+- msqid：消息队列标识符，由 msgget 函数返回。
+- cmd：控制命令，可以是以下值之一：
+  - IPC_RMID：删除消息队列。
+  - IPC_STAT：获取消息队列的状态信息，存储在 buf 指向的结构中。
+  - IPC_SET：设置消息队列的属性，使用 buf 指向的结构。
+- buf：指向 msqid_ds 结构的指针，用于获取或设置消息队列的状态信息。
+- 返回值：成功时返回0，失败时返回-1 并设置 errno 变量。
+
+#### msgsnd发送消息
+使用msgsnd函数向消息队列发送消息
+```c
+#include <sys/types.h>
+#include <sys/msg.h>
+int msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
+```
+- msqid：消息队列标识符，由 msgget 函数返回。
+- msgp：指向要发送的消息的指针，消息结构必须以 long 类型的 mtype 字段开头，表示消息类型。
+- msgsz：消息正文的大小，不包括 mtype 字段。
+- msgflg：发送标志，可以是以下值的按位或：
+  - IPC_NOWAIT：如果消息队列已满则立即返回，不阻塞。
+  - 0：默认行为，阻塞直到消息发送成功。
+- 返回值：成功时返回0，失败时返回-1 并设置 errno 变量。
+#### msgrcv接收消息
+使用msgrcv函数从消息队列接收消息
+```c
+#include <sys/types.h>
+#include <sys/msg.h>
+ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp, int msgflg);
+```
+- msqid：消息队列标识符，由 msgget 函数返回。
+- msgp：指向用于存储接收消息的缓冲区的指针，消息结构必须以 long 类型的 mtype 字段开头，表示消息类型。
+- msgsz：消息正文的大小，不包括 mtype 字段。
+- msgtyp：指定要接收的消息类型：
+  - 如果 msgtyp 为 0，则接收队列中的第一个消息。
+  - 如果 msgtyp 为正数，则接收第一个类型等于 msgtyp 的消息。
+  - 如果 msgtyp 为负数，则接收第一个类型小于或等于绝对值的消息。
+- msgflg：接收标志，可以是以下值的按位或：
+  - IPC_NOWAIT：如果没有符合条件的消息则立即返回，不阻塞。
+  - 0：默认行为，阻塞直到接收到消息。
+- 返回值：成功时返回接收到的消息正文的字节数，失败时返回-1 并设置 errno 变量。
+### 消息队列示例代码
+使用fork创建两个进程，一个发送消息，一个接收消息
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <string.h>
+
+#define MSG_SIZE 256  // 消息正文大小
+struct msg_buffer {
+    long mtype; // 消息类型
+    char mtext[MSG_SIZE]; // 消息正文
+};
+int main()
+{
+    key_t key = ftok("msgfile", 65); // 生成唯一键
+    if (key == -1)
+    {
+        perror("ftok failed");
+        return -1;
+    }
+
+    int msgid = msgget(key, 0666 | IPC_CREAT); // 创建消息队列
+    if (msgid == -1)
+    {
+        perror("msgget failed");
+        return -1;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    else if (pid == 0)
+    {
+        // 子进程：发送消息
+        struct msg_buffer message;
+        message.mtype = 1; // 设置消息类型
+        strcpy(message.mtext, "Hello from child process!");
+        if (msgsnd(msgid, &message, sizeof(message.mtext), 0) == -1)
+        {
+            perror("msgsnd failed");
+            return -1;
+        }
+        printf("Message sent: %s\n", message.mtext);
+    }
+    else
+    {
+        // 父进程：接收消息
+        struct msg_buffer message;
+        if (msgrcv(msgid, &message, sizeof(message.mtext), 1, 0) == -1)
+        {
+            perror("msgrcv failed");
+            return -1;
+        }
+        printf("Message received: %s\n", message.mtext);
+
+        // 删除消息队列
+        if (msgctl(msgid, IPC_RMID, NULL) == -1)
+        {
+            perror("msgctl failed");
+            return -1;
+        }
+    }
+    return 0;
+} 
+```
+### 信号量
+信号量不以共享数据为目的，而是用于进程间的同步和互斥，防止多个进程同时访问共享资源导致数据不一致的问题。信号量可以看作是一个计数器，用于控制对共享资源的访问。
+
+使用ipcs查看系统中的信号量
+```bash
+ipcs -s
+```
+#### semget创建信号量集
+使用semget函数创建或获取信号量集，返回信号量集标识
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+int semget(key_t key, int nsems, int semflg);
+```
+- key：信号量集的键值，可以使用 ftok 函数生成唯一键或者填入 IPC_PRIVATE 创建私有信号量集
+- nsems：信号量集中的信号量数量
+- semflg：信号量集的标志，可以是以下值的按位或：
+  - IPC_CREAT：如果信号量集不存在则创建。
+  - IPC_EXCL：与 IPC_CREAT 一起使用，如果信号量集已经存在则返回错误。
+  - 权限标志（如 0666）指定信号量集的访问权限。
+- 返回值：成功时返回信号量集标识符，失败时返回 -1 并设置 errno 变量。
+
+#### semctl控制信号量集
+使用semctl函数控制信号量集的操作，例如删除信号量集
+```c
+#include <sys/types.h>
+#include <sys/sem.h>
+int semctl(int semid, int semnum, int cmd, ...);
+```
+- semid：信号量集标识符，由 semget 函数返回。
+- semnum：信号量编号，指定要操作的信号量在信号量集中的索引。
+- cmd：控制命令，可以是以下值之一：
+  - IPC_RMID：删除信号量集。
+  - GETVAL：获取指定信号量的值。
+  - SETVAL：设置指定信号量的值。
+  - GETALL：获取信号量集中所有信号量的值。
+  - SETALL：设置信号量集中所有信号量的值。
+  - 返回值：成功时返回命令的结果，失败时返回 -1 并设置 errno 变量。
+#### semop操作信号量
+使用semop函数对信号量进行操作，例如增加或减少信号量的值
+```c
+#include <sys/types.h>
+#include <sys/sem.h>
+int semop(int semid, struct sembuf *sops, size_t nsops);
+```
+- semid：信号量集标识符，由 semget 函数返回。
+- sops：指向 sembuf 结构数组的指针，定义了要执行的信号量操作。
+- nsops：sops 数组中的操作数量。
+- 返回值：成功时返回0，失败时返回 -1 并设置 errno 变量。
+- struct sembuf 结构定义如下：
+```c
+struct sembuf {
+    unsigned short sem_num; // 信号量编号
+    short sem_op;          // 信号量操作值
+    short sem_flg;         // 操作标志
+};
+```
+- sem_num：指定要操作的信号量在信号量集中的索引
+- sem_op：指定对信号量执行的操作：
+  - 正值：增加信号量的值（释放资源）。
+  - 负值：减少信号量的值（获取资源），如果结果为负则阻塞等待。
+  - 0：等待信号量的值变为0。
+- sem_flg：操作标志，可以是以下值的按位或：
+    - IPC_NOWAIT：如果操作无法立即完成则立即返回，不阻塞。
+    - SEM_UNDO：在进程终止时自动撤销该操作，防止死锁。
+    - 0：默认行为，阻塞直到操作完成。
+### 信号量示例代码
+使用fork创建两个进程，一个增加信号量，一个减少信号量
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <unistd.h>
+#define SEM_KEY 1234 // 信号量键值 或者使用 ftok 函数生成唯一键
+int main()
+{
+    int semid = semget(SEM_KEY, 1, 0666 | IPC_CREAT); // 创建信号量集，包含1个信号量
+    if (semid == -1)
+    {
+        perror("semget failed");
+        return -1;
+    }
+    // 初始化信号量值为1
+    if (semctl(semid, 0, SETVAL, 1) == -1)
+    {
+        perror("semctl failed");
+        return -1;
+    }
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("Fork failed");
+        return -1;
+    }
+    else if (pid == 0)
+    {
+        // 子进程：减少信号量（获取资源）
+        struct sembuf sb;
+        sb.sem_num = 0; // 操作第0个信号量
+        sb.sem_op = -1; // 减少信号量值
+        sb.sem_flg = 0; // 默认标志
+        printf("Child process waiting to acquire semaphore...\n");
+        if (semop(semid, &sb, 1) == -1)
+        {
+            perror("semop failed");
+            return -1;
+        }
+        printf("Child process acquired semaphore.\n");
+        sleep(5); // 模拟使用资源
+        // 释放资源，增加信号量
+        sb.sem_op = 1; // 增加信号量值
+        if (semop(semid, &sb, 1) == -1)
+        {
+            perror("semop failed");
+            return -1;
+        }
+        printf("Child process released semaphore.\n");
+    }
+    else
+    {
+        // 父进程：增加信号量（释放资源）
+        sleep(1); // 确保子进程先运行
+        struct sembuf sb;
+        sb.sem_num = 0; // 操作第0个信号量
+        sb.sem_op = 1; // 增加信号量值
+        sb.sem_flg = 0; // 默认标志
+        printf("Parent process releasing semaphore...\n");
+        if (semop(semid, &sb, 1) == -1)
+        {
+            perror("semop failed");
+            return -1;
+        }
+        printf("Parent process released semaphore.\n");
+
+        // 删除信号量集
+        if (semctl(semid, 0, IPC_RMID) == -1)
+        {
+            perror("semctl failed");
+            return -1;
+        }
+    }
+    return 0;
+}
+```
+
