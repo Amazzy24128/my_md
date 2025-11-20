@@ -1536,3 +1536,79 @@ int main()
 }
 ```
 
+# 嵌入式Linux驱动
+
+
+## Linux驱动类型
+1. 字符设备驱动：用于处理字符设备，如串口、键盘、鼠标等。字符设备驱动通过字符设备文件进行数据的读写操作，通常以字节为单位进行数据传输。
+2. 块设备驱动：用于处理块设备，如硬盘、U盘等
+3. 网络设备驱动：用于处理网络设备，如以太网卡、无线网卡等。网络设备驱动负责数据包的发送和接收，以及网络协议的处理。
+
+## 编写helloworld驱动
+```c
+#include <linux/module.h>
+#include <linux/init.h>
+//module_init和module_exit宏用于指定驱动程序的初始化和退出函数。
+module_init(hello_init);
+module_exit(hello_exit);
+MODULE_LICENSE("GPL"); // 声明模块的许可证类型
+static int hello_init(void)
+{
+    printk(KERN_INFO "Hello, World! Driver Initialized.\n");
+    return 0; // 返回0表示初始化成功
+}
+
+static void hello_exit(void)
+{
+    printk(KERN_INFO "Hello, World! Driver Exited.\n");
+}
+
+module_init(hello_init);
+module_exit(hello_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("A simple Hello World Linux driver");
+``` 
+printk 函数用于在内核日志中打印信息。KERN_INFO 是一个日志级别，表示信息级别的日志消息。
+## 内核编译
+这玩意看雷神的笔记吧
+## 驱动编译
+
+### 编译成模块
+
+
+首先得编写一个Makefile文件，内容如下：
+``` Makefile
+obj-m += helloworld.o
+KDIR := /home/amz/arm_gcc/linux-imx-rel_imx_4.1.15_2.1.0_ga
+
+PWD ?= $(shell pwd)
+
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+```
+1. 保证源码编译通过
+2. 保证内核源码的版本和目标内核版本一致
+3. 保证ARCH环境变量设置为arm，进入make menuconfig配置内核选项时左上角显示ARCH=arm
+4. 指定合适的编译器版本 export CROSS_COMPILE=imx-    (会自动加入gcc后缀)
+
+将代码内容拷贝到makefile的同级目录下，执行make命令即可生成helloworld.ko模块文件
+
+#### 挂载/卸载内核模块
+使用insmod命令挂载内核模块
+```bash
+insmod helloworld.ko
+```
+使用rmmod命令卸载内核模块
+```bash
+rmmod helloworld
+```
+随后可在/var/log/messages或使用dmesg命令查看内核日志，确认模块的加载和卸载情况。
+
+如果是串口连接到电脑上，则会直接输出内核日志信息，
+ssh连接则需要使用dmesg命令查看内核日志。
+
+### 编译成内核的一部分
+
+
