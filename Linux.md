@@ -1574,7 +1574,6 @@ printk 函数用于在内核日志中打印信息。KERN_INFO 是一个日志级
 ## 内核编译
 这玩意看雷神的笔记吧
 ## 驱动编译
-
 ### 编译成模块
 
 
@@ -1609,6 +1608,178 @@ rmmod helloworld
 如果是串口连接到电脑上，则会直接输出内核日志信息，
 ssh连接则需要使用dmesg命令查看内核日志。
 
+现在从WCH官网下载了CH34x的驱动，通过编译将驱动挂载到内核中。
+通过
+```bash
+dmesg | tail -n 20
+```
+查看内核日志，发现驱动已经成功加载，且识别到CH340
+```bash
+[ 1987.522540] usb 2-1.2: ch341-uart converter now attached to ttyUSB5
+```
+通过命令配置串口
+```bash
+stty -F /dev/ttyUSB5 115200 raw -echo
+```
+其中，115200是波特率，raw表示原始模式，-echo表示关闭回显（关闭后不会回包输入的字符）
+
+
+然后将TXRX短接，在两个终端进行发送和接收，命令和现象如下
+![](Linux.assets/2025-11-22-16-19-06.png)
+此时串口成功运行
 ### 编译成内核的一部分
 
+在内核源码目录下输入
+```bash
+make menuconfig
+```
+内核界面可以通过 / 进行搜索
+通过空格对编译内容进行选择
+1. \* 代表编译到内核当中
+2. M 代表编译成模块
+3. 空格代表不编译
+![](Linux.assets/2025-11-22-16-37-57.png)
 
+和menuconfig有关的文件
+1. Makefile : 编译规则
+2. Kconfig : 配置选项定义，位于arch/arm/Kconfig
+3. .config : 配置结果文件, 位于内核源码根目录
+ 
+在内核源码的arch/arm/configs目录下存在很多预定义的配置文件，可以直接使用，作为.config文件的模板,将其复制到内核源码根目录下并重命名为.config即可
+```bash
+cp arch/arm/configs/imx_v7_defconfig .config
+```
+随后可以进入menuconfig界面进行修改.config的内容
+linux自动将配置内容以宏的形式保存在include/generated/autoconf.h文件中，驱动程序可以通过包含该头文件来使用这些宏定义，从而根据配置选项的不同实现不同的功能。
+
+ 了解这些内容之后就可开始编译内核了
+
+建议按照以下顺序操作，确保驱动成功编译并运行。
+
+#### 第一阶段：源码集成 (Source Integration)
+1. 准备驱动源码
+在内核源码目录下创建驱动目录（例如 drivers/char/my_driver/），放入源文件。
+
+2. 编写当前目录的 Kconfig
+定义菜单项，使驱动在 menuconfig 中可见。
+
+```Makefile
+# drivers/char/my_driver/Kconfig
+config MY_DRIVER
+    tristate "My Custom Driver Support" # tristate 支持三种状态：y (编译进内核), m (编译为模块), n (不编译)
+    help # 显示在 menuconfig 中的帮助信息
+      This is a demo driver for imx6ull.
+```
+3. 编写当前目录的 Makefile (关键修正)
+不要直接使用 obj-y，而是引用 Kconfig 中定义的变量 CONFIG_MY_DRIVER。这样构建系统才能根据配置决定是编译进内核、编译成模块还是不编译。
+
+```Makefile
+# drivers/char/my_driver/Makefile
+# 正确写法：
+obj-$(CONFIG_MY_DRIVER) += my_driver.o
+
+# 错误写法（会导致无条件编译）：
+# obj-y += my_driver.o 
+```
+4. 修改上一级 Kconfig
+将新的 Kconfig 加入内核配置树。
+
+```Makefile
+# drivers/char/Kconfig
+source "drivers/char/my_driver/Kconfig"
+```
+5. 修改上一级 Makefile
+告诉编译器进入新目录。
+
+```Makefile
+# drivers/char/Makefile
+obj-y += my_driver/
+```
+#### 第二阶段：硬件描述 (Hardware Description)
+6. 修改设备树 (.dts) (ARM 架构必需)
+驱动代码中的 compatible 字符串必须与设备树中的节点匹配，否则 probe 函数永远不会被调用。
+
+找到板级设备树文件（如 arch/arm/boot/dts/imx6ull-14x14-evk.dts），添加节点：
+```dts
+dts
+/* 在适当的节点下添加，例如根节点 / 或某个总线节点下 */
+my_device_node {
+    /* 这个字符串必须和驱动代码 struct of_device_id 中的 .compatible 一致 */
+    compatible = "myvendor,mydriver"; 
+    status = "okay";
+    /* 如果需要中断或GPIO，在这里添加 */
+};
+```
+第三阶段：配置与编译 (Configuration & Build)
+7. 启用并编译
+完成以上代码修改后，执行最后一步：
+
+配置内核：
+
+```bash
+make menuconfig
+```
+
+进入路径：Device Drivers -> Character devices（取决于你放的位置）。
+找到 My Custom Driver Support。
+按 Y (编译进内核 zImage) 或 M (编译为模块 .ko)。
+Save 并 Exit。
+执行编译：
+
+```bash
+# 如果选了 Y (编译进内核)
+make zImage dtbs 
+
+# 如果选了 M (编译为模块)
+make modules
+```
+
+### Linux 三大设备驱动
+#### 字符设备驱动
+字符设备驱动用于处理字符设备，如串口、键盘、鼠标等。 字符设备驱动通过字符设备文件进行数据的读写操作，通常以字节为单位进行数据传输。IIC、SPI等总线驱动也属于字符设备驱动范畴。
+#### 块设备驱动
+块设备驱动用于处理块设备，如硬盘、U盘等。 块设备驱动通过块设备文件进行数据的读写操作，通常以块为单位进行数据传输。
+#### 网络设备驱动
+网络设备驱动用于处理网络设备，如以太网卡、无线网卡等。 网络设备驱动负责数据包的发送和接收，以及网络协议的处理。以socket套接字的形式进行数据传输。
+
+
+## 字符设备
+### 杂项设备
+杂项设备是一种特殊类型的字符设备，通常用于处理一些不属于标准字符设备类别的设备。杂项设备通过 /dev/misc 目录下的设备文件进行数据的读写操作。杂项设备通常用于处理一些特殊的硬件设备，如加密设备、随机数生成器等。
+``` bash
+cat /proc/misc # 查看系统中的杂项设备
+```
+
+杂项设备的主设备号都为 10，次设备号由内核动态分配。
+
+### 注册杂项设备
+
+查看 (kernel_root)/include/linux/miscdevice.h 头文件,有如下结构体
+```c
+struct miscdevice  {
+    int minor; // 次设备号，动态分配时填入 MISC_DYNAMIC_MINOR
+    const char *name; // 设备名称
+    const struct file_operations *fops; // 文件操作结构体指针,详细内容在(kernel_root)/include/linux/fs.h下
+    struct list_head list;  // 链表节点，用于将杂项设备添加到内核的杂项设备列表中
+    struct device *parent; // 父设备指针
+    struct device *this_device; // 设备指针
+    const struct attribute_group **groups; // 设备属性组
+    const char *nodename; // 设备节点名称
+    umode_t mode; // 设备节点权限
+};
+```
+
+使用misc_register函数注册杂项设备
+```c
+#include <linux/miscdevice.h>
+int misc_register(struct miscdevice *misc);
+```
+- misc：指向要注册的杂项设备结构体的指针。
+- 返回值：成功时返回0，失败时返回负错误码。
+使用misc_deregister函数注销杂项设备
+```c
+#include <linux/miscdevice.h>
+void misc_deregister(struct miscdevice *misc);
+```
+- misc：指向要注销的杂项设备结构体的指针。
+- 返回值：无返回值。
