@@ -1783,3 +1783,500 @@ void misc_deregister(struct miscdevice *misc);
 ```
 - misc：指向要注销的杂项设备结构体的指针。
 - 返回值：无返回值。
+
+#### 杂项设备示例代码
+```c
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/miscdevice.h>
+#include <linux/fs.h>   
+
+struct file_operations my_fops = {
+    .owner = THIS_MODULE
+    .open = NULL, // 可以在这里添加自己编写的函数内容
+    .release = NULL
+    // 可以在这里添加其他文件操作函数，如 read, write, open, release 等
+};
+
+
+struct miscdevice my_misc_device = {
+    .minor = MISC_DYNAMIC_MINOR, // 动态分配次设备号
+    .name = "my_misc_device", // 设备名称
+    .fops = &my_fops, // 文件操作结构体指针，暂时设置为NULL
+};
+static int __init my_misc_init(void)
+{
+    int ret;
+    ret = misc_register(&my_misc_device); // 注册杂项设备
+    if (ret)
+    {
+        printk(KERN_ERR "Failed to register misc device\n");
+        return ret;
+    }
+    printk(KERN_INFO "Misc device registered with minor %d\n", my_misc_device.minor);
+    return 0;
+}
+static void __exit my_misc_exit(void)
+{
+    misc_deregister(&my_misc_device); // 注销杂项设备
+    printk(KERN_INFO "Misc device unregistered\n");
+}
+
+module_init(my_misc_init);
+module_exit(my_misc_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+
+```
+
+编译挂载ko文件到内核后，可以在 /dev 目录下看到名为 my_misc_device 的设备文件，次设备号由内核动态分配。
+
+
+
+### 应用层和内核层交互
+
+应用层通过打开 /dev 目录下的设备文件与内核层的驱动程序进行交互。应用层可以使用标准的文件操作函数，如 open、read、write、ioctl 等，来与驱动程序进行通信。
+#### 数据传输
+``` c
+//使用copy_to_user函数将数据从内核空间复制到用户空间
+#include <linux/uaccess.h>
+ssize_t my_read(struct file *file, char __user *buf, size_t count, loff_t *offset)
+{
+    char kernel_buffer[100]; // 内核缓冲区
+    size_t bytes_to_copy = min(count, sizeof(kernel_buffer)); // 计算要复制的字节数
+    // 从内核缓冲区复制数据到用户空间
+    if (copy_to_user(buf, kernel_buffer, bytes_to_copy))
+    {
+        return -EFAULT; // 复制失败，返回错误码
+    }
+    return bytes_to_copy; // 返回实际复制的字节数
+}
+
+//使用copy_from_user函数将数据从用户空间复制到内核空间
+#include <linux/uaccess.h>
+ssize_t my_write(struct file *file, const char __user *buf, size_t count, loff_t *offset)
+{
+    char kernel_buffer[100]; // 内核缓冲区
+    size_t bytes_to_copy = min(count, sizeof(kernel_buffer)); // 计算要复制的字节数
+    // 从用户空间复制数据到内核缓冲区
+    if (copy_from_user(kernel_buffer, buf, bytes_to_copy))
+    {
+        return -EFAULT; // 复制失败，返回错误码
+    }
+    return bytes_to_copy; // 返回实际复制的字节数
+}
+
+
+
+```
+
+
+## open一个设备文件
+
+驱动端
+```c
+#include <linux/fs.h>
+static int my_open(struct inode *inode, struct file *file)
+{
+    printk(KERN_INFO "Device opened\n");
+    return 0; // 返回0表示成功打开设备
+}
+static struct file_operations my_fops = {
+    .owner = THIS_MODULE,
+    .open = my_open,
+    // 其他文件操作函数
+};
+```
+
+
+
+
+应用端
+```c
+#include <fcntl.h>
+int fd = open("/dev/my_misc_device",O_RDWR); // 以读写方式
+if (fd < 0)
+{
+    perror("Failed to open device file");
+    return -1;
+}
+```
+- 第一个参数是设备文件的路径。
+- 第二个参数是打开方式，可以是 O_RDONLY（只读）、O_WRONLY（只写）、O_RDWR（读写）等。
+- 返回值是文件描述符，失败时返回 -1 并设置 errno 变量。
+
+
+
+
+
+
+## Linux寄存器操作
+linux有MMU，寄存器地址是虚拟地址，需要先映射到内核空间才能访问
+```c
+#include <linux/io.h>
+void __iomem *ioremap(resource_size_t offset, unsigned long size);
+```
+
+- offset：要映射的物理地址。
+- size：要映射的内存区域大小。
+- 返回值：成功时返回映射后的虚拟地址，失败时返回 NULL。
+
+使用iounmap函数解除映射
+```c
+#include <linux/io.h>
+void iounmap(void __iomem *addr);
+```
+- addr：要解除映射的虚拟地址。
+- 返回值：无返回值。
+
+### 读写寄存器
+使用readl函数从寄存器读取数据
+```c
+#include <linux/io.h>
+u32 readl(const void __iomem *addr);
+```
+
+- addr：寄存器的虚拟地址。
+- 返回值：读取到的数据。
+
+
+使用writel函数向寄存器写入数据
+```c
+#include <linux/io.h>
+void writel(u32 value, void __iomem *addr);
+```
+- value：要写入的数据。
+- addr：寄存器的虚拟地址。
+- 返回值：无返回值。
+
+#### 寄存器操作实操
+注册杂项设备、使用设备节点文件与寄存器交互操控蜂鸣器
+```c
+//查阅到蜂鸣器的地址为0x020C4000
+
+#define GPIO5_DR  0x020C4000
+unsigned int * gpio5_dr;
+struct file_operations my_fops = {
+    .owner = THIS_MODULE,
+    .open = NULL, // 可以在这里添加自己编写的函数内容
+    .release = NULL,
+    .read = my_read,
+    .write = my_write,
+    // 可以在这里添加其他文件操作函数，如 read, write, open, release 等
+};
+static int __init my_misc_init(void)
+{
+    int ret;
+    gpio5_dr = ioremap(GPIO5_DR, 4); // 映射寄存器地址
+    if (!gpio5_dr)
+    {
+        printk(KERN_ERR "Failed to map GPIO5_DR register\n");
+        return -ENOMEM;
+    }
+    ret = misc_register(&my_misc_device); // 注册杂项设备
+    if (ret)
+    {
+        printk(KERN_ERR "Failed to register misc device\n");    
+        iounmap(gpio5_dr); // 解除映射
+        return ret;
+    }
+    printk(KERN_INFO "Misc device registered with minor %d\n", my_misc_device.minor);
+    return 0;
+}
+static void __exit my_misc_exit(void)
+{
+    iounmap(gpio5_dr); // 解除映射
+    misc_deregister(&my_misc_device); // 注销杂项设备
+    printk(KERN_INFO "Misc device unregistered\n");
+}
+ssize_t my_write(struct file *file, const char __user *buf, size_t count, loff_t *offset)
+{
+    char kbuf[3];
+    size_t to_copy;
+    u32 bit = (1u << 1); /* 目标位 */
+    u32 val;
+
+    if (count == 0)
+        return 0;
+
+    to_copy = (count > 2) ? 2 : count; /* 最多拷贝 2 字节 */
+    if (copy_from_user(kbuf, buf, to_copy))
+        return -EFAULT;
+
+    kbuf[to_copy] = '\0'; /* 便于按字符串/字符处理 */
+
+    /* 读寄存器 -> 修改 -> 写回，防止覆盖其他位 */
+    val = readl(gpio5_dr);
+
+    if (kbuf[0] == '1') {
+        val |= bit;           /* 置位：打开蜂鸣器 */
+        writel(val, gpio5_dr);
+    } else if (kbuf[0] == '0') {
+        val &= ~bit;          /* 清位：关闭蜂鸣器 */
+        writel(val, gpio5_dr);
+    } else {
+        return -EINVAL;       /* 非法输入 */
+    }
+
+    return to_copy;
+}
+module_init(my_misc_init);
+module_exit(my_misc_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+```
+
+#### 查看哪些地址被映射了
+```bash  
+cat /proc/iomem
+```
+
+## 驱动命令行传参
+1. 设置驱动相关参数，比如设置缓冲区大小、设备名称等。
+2. 设置安全校验，防止驱动被人盗用。
+
+
+### 传参方式
+
+传递单个参数
+
+```c
+#include <linux/moduleparam.h>
+static int my_param = 0; // 定义一个整型参数，默认值为 0
+module_param(my_param, int, S_IRUGO); // 注册参数，权限为只读
+MODULE_PARM_DESC(my_param, "An integer parameter"); // 参数描述
+```
+- 第一个参数是参数名称。
+- 第二个参数是参数类型，如 int、bool、charp（字符串）等。   
+- 第三个参数是权限标志，指定参数的访问权限，如 S_IRUGO（只读）、S_IWUSR（用户可写）等。
+
+
+传递数组
+```c
+#include <linux/moduleparam.h>
+#define ARRAY_SIZE 5
+static int my_array[ARRAY_SIZE] = {0}; // 定义一个整型数组参数
+static int arr_argc; // 用于存储实际传递的数组元素数量
+module_param_array(my_array, int, &arr_argc, S_IRUGO); // 注册数组参数
+MODULE_PARM_DESC(my_array, "An array of integers"); // 参数描述
+```
+- 第一个参数是数组名称。
+- 第二个参数是数组元素类型。
+- 第三个参数是指向整数的指针，用于存储实际传递的数组元素数量。
+- 第四个参数是权限标志。
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
