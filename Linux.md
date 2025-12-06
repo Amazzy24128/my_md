@@ -2067,14 +2067,148 @@ MODULE_PARM_DESC(my_array, "An array of integers"); // 参数描述
 
 
  
+## 申请字符驱动
+
+字符驱动和杂项设备驱动的区别在于，字符驱动需要手动分配主设备号和次设备号，而杂项设备驱动的主设备号固定为10，次设备号由内核动态分配。
 
 
+### 申请设备号
+
+使用register_chrdev_region函数申请设备号
+```c
+#include <linux/fs.h>
+int register_chrdev_region(dev_t first, unsigned int count, const char *name);
+```
+- first：起始设备号，可以使用 MKDEV 宏生成设备号。
+- count：要申请的设备号数量。
+- name：设备名称。
+- 返回值：成功时返回0，失败时返回负错误码。
+
+使用unregister_chrdev_region函数释放设备号
+```c
+#include <linux/fs.h>
+void unregister_chrdev_region(dev_t first, unsigned int count);
+```
+- first：起始设备号。   
+- count：要释放的设备号数量。
+- 返回值：无返回值。    
+
+#### 申请字符驱动示例代码
+```c
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+
+#define DEVICE_NAME "my_char_device"
+static dev_t my_dev_number; // 设备号变量   
+static int __init my_char_init(void)
+{
+    int ret;
+    // 申请设备号
+    ret = register_chrdev_region(MKDEV(240, 0), 1, DEVICE_NAME); // 申请主设备号240，次设备号0，数量1
 
 
+    //或者自动分配主设备号
+    //ret = alloc_chrdev_region(&my_dev_number, 0, 1, DEVICE_NAME);
+    if (ret)
+    {
+        printk(KERN_ERR "Failed to register char device region\n");
+        return ret;
+    }
+    printk(KERN_INFO "Char device registered with major %d\n", MAJOR(my_dev_number));
+    return 0;
+}
+static void __exit my_char_exit(void)
+{
+    // 释放设备号
+    unregister_chrdev_region(MKDEV(240, 0), 1);
+    printk(KERN_INFO "Char device unregistered\n");
+}       
+
+module_init(my_char_init);
+module_exit(my_char_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+
+```
+
+ 
+### 设备节点的自动创建
+
+使用mdev / udev 自动创建设备节点文件。
+mdev 是一个轻量级的设备管理器，通常用于嵌入式Linux系统。它会在设备注册时自动创建和删除设备节点文件。
+udev 是一个更复杂的设备管理器，通常用于桌面和服务器Linux系统。它提供了更多的功能，如设备热插拔、设备权限管理等。
+
+在这只讨论mdev
+
+#### 自动创建节点的步骤
+
+1. 使用class_create函数创建一个设备类
+2. 使用device_create函数创建一个设备节点
+
+ ``` c
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/device.h>
+
+static struct class *my_class; // 设备类指针
+static dev_t my_dev_number; // 设备号变量
+static struct device *my_device; // 设备指针
+static int __init my_char_init(void)
+{
+    int ret;
+    // 申请设备号
+    ret = alloc_chrdev_region(&my_dev_number, 0, 1, "my_char_device");
+    if (ret)
+    {
+        printk(KERN_ERR "Failed to register char device region\n");
+        return ret;
+    }
+    printk(KERN_INFO "Char device registered with major %d\n", MAJOR(my_dev_number));
+    // 创建设备类
+    my_class = class_create(THIS_MODULE, "my_char_class");
+    if (IS_ERR(my_class))
+    {
+        unregister_chrdev_region(my_dev_number, 1); // 释放设备号
+        printk(KERN_ERR "Failed to create class\n");
+        return PTR_ERR(my_class);
+    }
+    // 创建设备节点
+    my_device = device_create(my_class, NULL, my_dev_number, NULL, "my_char_device");
+    if (IS_ERR(my_device))
+    {
+        class_destroy(my_class); // 销毁设备类
+        unregister_chrdev_region(my_dev_number, 1); // 释放设备号
+        printk(KERN_ERR "Failed to create device\n");       
+        return PTR_ERR(my_device);
+    }
+    printk(KERN_INFO "Device created: /dev/my_char_device\n");
+    return 0;
+}
+static void __exit my_char_exit(void)
+{
+    device_destroy(my_class, my_dev_number); // 销毁设备节点
+    class_destroy(my_class); // 销毁设备类
+    unregister_chrdev_region(my_dev_number, 1); // 释放设备号
+    printk(KERN_INFO "Char device unregistered\n");
+}   
+module_init(my_char_init);
+module_exit(my_char_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+``` 
 
 
+编译挂载后，系统的 /dev 目录下会自动创建名为 my_char_device 的设备节点文件。
+/sys/class 目录下会创建一个名为 my_char_class 的目录，里面包含了该设备类的信息。
 
+## platform驱动
+平台设备（platform device）是一种特殊类型的设备，通常用于描述与特定硬件平台相关的设备。平台设备通常不通过总线（如 PCI、USB 等）进行连接，而是直接与处理器或 SoC（系统级芯片）集成在一起。平台设备通常用于描述嵌入式系统中的设备，如 GPIO 控制器、定时器、串口等。
 
+平台总线（platform bus）是一种特殊类型的总线，专门用于管理和连接平台设备。平台总线负责注册、注销和管理平台设备，并为平台设备提供统一的接口和访问方式。平台总线通常不涉及物理连接，而是通过软件层面进行管理。
+
+设计dirver.c 和 device.c 两个文件，分别实现平台驱动和平台设备的注册与管理,总线会自动将设备和驱动按照名称进行匹配并绑定。
 
 
 
